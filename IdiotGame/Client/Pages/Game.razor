@@ -1,0 +1,619 @@
+﻿@page "/game"
+@using IdiotGame.Shared.Models
+@inject NavigationManager NavigationManager
+@implements IAsyncDisposable
+
+<PageTitle>Idiot Game</PageTitle>
+
+<h3>Game</h3>
+
+
+@if (!IsConnected) {
+    <div class="input-group">
+        <input @bind="username" class="form-control" placeholder="What's your name?">
+        <button class="btn btn-primary form-control-append" @onclick="Connect">
+            Connect
+        </button>
+    </div>
+} else {
+
+    @if (gameStarted) {
+        <div class="text-center">
+
+
+            <img src="card_back.png" width="7%" height="auto" class="m-5" @onclick="DrawCard" hidden="@deckEmpty">
+            @if (pickUpPile is null || pickUpPile.Count < 1) {
+                <img src="card_back.png" width="7%" height="auto" class="m-5" @onclick="PlaySelected">
+            } else {
+            <img src="@pickUpPile.Last().ToString()" width="7%" height="auto" class="m-5" @onclick="PlaySelected">
+            }
+
+        </div>
+
+        <div class="text-center">
+
+            @foreach (Card card in player.Hand.GetCards()) {
+                <img src="@card.ToString()" class="m-1" width="7%" height="auto" style="box-shadow: @card.highlight" @onclick="() => SelectedCard(card)">
+            }
+
+        </div>
+
+        <div>
+            <textarea style="width: 100%; height:auto;">
+                @messages
+            </textarea>
+        </div>
+    }
+
+    @if (!gameStarted) {
+        <textarea style="width: 100%; height: 300px;" placeholder="Send a chat...">
+            @messages
+        </textarea>    <div class="input-group">
+            <input @bind-value="message" @bind-value:event="oninput" class="form-control">
+            <button class="btn btn-primary form-group-append"
+            @onclick="Send"
+            disabled="@(!IsConnected)">
+                Send
+            </button>
+        </div>
+    }
+
+
+    <div class="text-center">
+        @if (!gameStarted) {
+            <button class="btn btn-info" @onclick="Start"> Start</button>
+        } else {
+            <button type="button" class="btn btn-primary" @onclick="Sort"> Sort! </button>
+            <button type="button" class="btn btn-primary" @onclick="PrintServerHand"> Server Hand </button>
+        }
+    </div>
+
+    @if (gameStarted){
+        <div class="text-center">
+          
+                @for (int i = 0; i < 3; ++i){
+
+                    if (bottomScreenCardNums[i] == 2) { //Face up bottom screen cards
+
+                        Card card = bottomScreenCards[i];
+                        <img src="@card.ToString()" class="m-1" width="7%" height="auto" style="box-shadow: @card.highlight;" @onclick="@(e => {if (bottomFaceUpAvailable) SelectedCard(card);})">
+
+                    } else if (bottomScreenCardNums[i] == 1) {  // Face down bottom screen cards
+
+                        Card card = bottomScreenCards[i+3];;
+                        <img src="card_back.png" class="m-1" width="7%" height="auto" style="box-shadow: @card.highlight;" @onclick="@(e => {if (bottomFaceDownAvailable) SelectedCard(card);})">
+
+                    } else {  //Blank card to hold the spot
+
+                        <img src="card_back.png" class="m-1" width="7%" height="auto" hidden="true" >
+
+                    }
+            }
+
+
+
+        </div>
+        
+    }
+
+}
+
+
+
+@code {
+
+    private HubConnection? hubConnection;
+
+    private string messages = string.Empty;
+    private string username = string.Empty;
+    private string message = string.Empty;
+
+    private string gameID = string.Empty;
+
+    private bool gameStarted = false;
+    private bool hasDrawn = false;
+    private bool deckEmpty = false;
+    private bool bottomFaceUpAvailable = false;
+    private bool bottomFaceDownAvailable = false;
+
+    private List<int> bottomScreenCardNums = new List<int> { 2, 2, 2 }; //change to 222
+    private List<Card> bottomScreenCards;
+
+    private GameDeck deck;
+
+    private Player player;
+
+    private List<Card>? pickUpPile;
+
+    private List<Card> selectedCards;
+
+    private async Task Connect() {
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri($"/gamehub?username={username}"))
+            .Build();
+
+
+        hubConnection.On<string, string>("ReceiveMessage", (user, message) => {
+            var msg = $"{(string.IsNullOrEmpty(user) ? "" : user + ": ")} {message}";
+            messages += msg + "\n";
+            StateHasChanged();
+        });
+
+        hubConnection.On<string>("SetMessage", (message) => {
+
+            messages = message;
+            StateHasChanged();
+        });
+
+        hubConnection.On<Player, string>("SetPlayer", (_player, _gameID) => {
+            player = _player;
+            gameStarted = true;
+            gameID = _gameID;
+            bottomScreenCards = player.FaceUpCardPile.GetCards().Concat(player.FaceDownCardPile.GetCards()).ToList();
+            messages = "";
+
+            StateHasChanged();
+
+        });
+
+        hubConnection.On<string>("SetPlayerTurn", (curPlayerTurnUsername) => {
+
+            if (curPlayerTurnUsername == player.Username) {
+                messages = "Your Turn!";
+                player.TurnActive = true;
+            } else {
+                messages = curPlayerTurnUsername + " Turn!";
+                player.TurnActive = false;
+            }
+
+            StateHasChanged();
+
+            
+            CleanHighlightedCards();
+ 
+            
+            CheckIfBottomIsAvailable();
+
+            
+
+        });
+
+
+        hubConnection.On<bool>("StartCheck", (check) => {
+            if (!check) {
+                Console.WriteLine("Not enough players!");
+            } else {
+                Console.WriteLine("Game is starting!");
+            }
+        });
+
+        hubConnection.On<Card>("RecievePickUpPileCard", (pickUpPileCard) => {
+
+            if (pickUpPile is null) {
+                pickUpPile = new();
+            }
+
+            pickUpPile.Add(pickUpPileCard);
+            CleanHighlightedCards();
+            StateHasChanged();
+        });
+
+        hubConnection.On<List<Card>>("RecieveDraw", (drawCards) => {
+
+            if (drawCards.Count() > 0) {
+                player.Hand.InsertCardListBottom(drawCards);
+                CleanHighlightedCards();
+                CheckIfBottomIsAvailable();
+                StateHasChanged();
+            }
+
+        });
+
+        hubConnection.On<bool>("ClearPickUpPile", (clear) => {
+            if (clear) {
+                pickUpPile = null;
+            }
+            StateHasChanged();
+        });
+
+        hubConnection.On<bool>("DeckEmpty", (empty) => {
+            deckEmpty = empty;
+            StateHasChanged();
+        });
+
+        hubConnection.On<string>("GameOver", (loser) => {
+            Console.WriteLine($"{loser} lost the game!");
+            messages = $"{loser} lost the game!";
+            gameStarted = false;
+            pickUpPile = null;
+            StateHasChanged();
+        });
+
+        hubConnection.On<List<Card>>("GetServerHand", (c) => {
+
+            foreach (Card t in c) {
+                Console.WriteLine(t.ToString());
+            }
+
+            Console.WriteLine("\n");
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    private async Task Send() {
+        if (hubConnection is not null) {
+            await hubConnection.SendAsync("SendMessage", username, message);
+            message = string.Empty;
+        }
+    }
+
+
+    /// <summary>
+    /// Starts the game when the start button is clicked
+    /// </summary>
+    /// <returns></returns>
+    private async Task Start() {
+
+        messages = string.Empty;
+
+        if (hubConnection is not null && !gameStarted) {
+            await hubConnection.SendAsync("StartGame");
+
+        }
+
+
+    }
+
+    /// <summary>
+    /// Highlights the selected cards and adds them to the selectedCard list
+    /// </summary>
+    /// <param name="card"></param>
+    private void SelectedCard(Card card) {
+
+        if (player.TurnActive) {
+
+            if (card.highlight is null) {
+                card.highlight = string.Empty;
+            }
+
+            if (selectedCards is null) {
+                selectedCards = new();
+            }
+
+            if (card.highlight != string.Empty) {
+                card.highlight = string.Empty;
+
+            } else {
+
+                if (selectedCards.Count != 0 && selectedCards[0].Value == card.Value) {
+                    selectedCards.Add(card);
+                }
+
+                if (selectedCards.Count != 0 && selectedCards[0].Value != card.Value) {
+                    selectedCards.Clear();
+                    selectedCards.Add(card);
+                }
+
+                if (selectedCards.Count == 0) {
+                    selectedCards.Add(card);
+                }
+
+                foreach (Card crd in FindCardPile(selectedCards[0]).GetCards()) {
+                    if (selectedCards.Contains(crd)) {
+                        crd.highlight = "0px 12px 22px 1px #00ff00;";
+                    } else {
+                        crd.highlight = string.Empty;
+                    }
+                }
+            }
+
+
+
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Plays the selected card if possible and removes it from the players hand
+    /// </summary>
+    /// <returns></returns>
+    private async Task PlaySelected() {
+
+        if (gameStarted) {
+
+            if (selectedCards.Count > 0) {
+
+                if (player.TurnActive) {
+
+                    Pile p = FindCardPile(selectedCards[0]);
+
+                    if (pickUpPile is null || CardCheck(p)) {
+
+                        if (hubConnection is not null && gameStarted) {
+
+                            List<Card> cards = new();
+
+                            cards = cards.Concat(selectedCards).ToList();
+
+                            if (p == player.FaceUpCardPile || p == player.FaceDownCardPile) {
+
+                                BottomCards(cards);
+
+                            }
+
+                            p.RemoveCards(cards);
+
+                            await hubConnection.SendAsync("PlayCard", cards);
+
+                        }
+
+                    } else if (pickUpPile is not null) {
+                        
+                        if (p == player.FaceUpCardPile || p == player.FaceDownCardPile) {
+                            BottomCards(selectedCards);
+                        }
+
+                        AddPickUpPileToPlayerHand(selectedCards[0]);
+                    }
+
+                }
+
+            } else {
+
+                AddPickUpPileToPlayerHand(null);
+
+            }
+
+            selectedCards.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Checks the value of the card played against the pickUpPile
+    /// Handles special case cards such as 2 and 10, and only allows certain cards to be placed on top of 
+    /// an ace card.
+    /// </summary>
+    /// <returns></returns>
+    private bool CardCheck(Pile p) {
+
+        if (selectedCards.Count() > 0) {
+
+            if ((int)selectedCards[0].Value == 2) { //Special Card 2
+                return true;
+            }
+
+            if ((int)selectedCards[0].Value == 10) { //Special Card 10
+                return true;
+            }
+
+            if ((int)selectedCards[0].Value == 1) {  //Ace
+                return true;
+            }
+
+            if ((int)pickUpPile.Last().Value == 1 && (int)selectedCards[0].Value != 1) {
+                return false;
+            }
+
+            if (p != player.FaceDownCardPile) {
+
+                if (pickUpPile.Last().Value <= selectedCards[0].Value) {
+                    return true;
+                }
+
+            } else {
+                if (pickUpPile.Last().Value <= selectedCards[0].Value) {
+                    return true;
+                } else {
+                    pickUpPile.Add(selectedCards[0]);
+                    return false;
+                }
+            }
+
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Draws a single card from the game deck
+    /// </summary>
+    /// <returns></returns>
+    private async Task DrawCard() {
+
+        if (player.TurnActive && !deckEmpty && gameStarted) {
+
+            if (hubConnection is not null && gameStarted) {
+                await hubConnection.SendAsync("DrawCard", player.Hand.CardCount());
+                hasDrawn = true;
+            }
+        }
+    }
+
+
+    /// <summary>
+    /// Finds which pile a specific card belongs to
+    /// </summary>
+    /// <param name="card"></param>
+    /// <returns></returns>
+    private Pile FindCardPile(Card card) {
+
+        foreach (Card crd in player.Hand.GetCards()) {
+            if (crd == card) {
+                return player.Hand;
+            }
+        }
+
+        foreach (Card crd in player.FaceUpCardPile.GetCards()) {
+            if (crd == card) {
+                return  player.FaceUpCardPile; ;
+            }
+        }
+
+        foreach (Card crd in player.FaceDownCardPile.GetCards()) {
+            if (crd == card) {
+                return  player.FaceDownCardPile;
+            }
+        }
+
+        return null;
+
+    }
+
+    /// <summary>
+    /// When a player wants to or has to pick up the pickup pile this function fires and adds
+    /// the cards to the players hand while also clearing any highlights the cards may have.
+    /// </summary>
+    /// <returns></returns>
+    private async Task AddPickUpPileToPlayerHand(Card cd) {
+
+        if (pickUpPile.Count() > 0 || pickUpPile is not null) {
+            if (hubConnection is not null && gameStarted) {
+                await hubConnection.SendAsync("PlayerPickUp", cd);
+                player.Hand.InsertCardListBottom(pickUpPile);
+
+                foreach(Card card in player.Hand.GetCards()) {
+                    card.highlight = string.Empty;
+                }
+
+            }
+        }
+
+
+    }
+
+
+    /// <summary>
+    /// Used to display a face up card or a face down card on the lower screen piles
+    /// </summary>
+    /// <param name="cards"></param>
+    private void BottomCards(List<Card> cards) {
+
+        for(int i = 0; i < 3; ++i) {
+            if (bottomScreenCardNums[i] == 2) {
+                foreach(Card c in cards) {
+                    if (c == bottomScreenCards[i]) {
+                        bottomScreenCardNums[i] = 1;
+                        break;
+                    }
+                }
+            } else if (bottomScreenCardNums[i] == 1) {
+                foreach(Card c in cards) {
+                    if (c == bottomScreenCards[i+3]) {
+
+                        bottomScreenCardNums[i] = 0;
+                        break;
+                    }
+                }
+            }
+        }
+
+    }
+
+
+    /// <summary>
+    /// Method for sorting a players hand into numerically decending cards
+    /// </summary>
+    private void Sort() {
+
+        player.Hand.cards = player.Hand.cards.OrderByDescending(o => (int)o.Value).ToList();
+
+    }
+
+    private void CheckIfBottomIsAvailable() {
+
+        if (player.Hand.CardCount() >= 1) {
+            bottomFaceDownAvailable = false;
+            bottomFaceUpAvailable = false;
+            return;
+        }
+
+        if (player.Hand.CardCount() == 0) {
+            if (player.FaceUpCardPile.CardCount() >= 1) {
+                bottomFaceDownAvailable = true; //Change to false
+                bottomFaceUpAvailable = true;
+                return;
+            } 
+
+            if (player.FaceUpCardPile.CardCount() == 0) {
+                bottomFaceDownAvailable = true;
+                bottomFaceUpAvailable = false;
+                return;
+            }
+        }
+
+    }
+
+    private void CleanHighlightedCards() {
+
+        foreach(Card card in player.Hand.GetCards()) {
+            if (card.highlight != string.Empty) {
+                card.highlight = string.Empty;
+            }
+        }
+
+        foreach(Card card in player.FaceDownCardPile.GetCards()) {
+            if (card.highlight != string.Empty) {
+                card.highlight = string.Empty;
+            }
+        }
+
+        foreach(Card card in player.FaceUpCardPile.GetCards()) {
+            if (card.highlight != string.Empty) {
+                card.highlight = string.Empty;
+            }
+        }
+
+        selectedCards.Clear();
+
+    }
+
+    //Test methods
+    #region testmethods
+    //---------------------------------------------------------------------------------------
+
+
+    private async Task DrawSpecific() {
+        if (hubConnection is not null && gameStarted) {
+
+            int value = 11;
+
+            await hubConnection.SendAsync("DrawSpecific", value);
+
+        }
+    }
+
+    private void PrintFaceDown() {
+        Console.WriteLine("Face down");
+
+        foreach(Card c in player.FaceUpCardPile.GetCards()) {
+            Console.WriteLine(c.ToString());
+        }
+
+    }
+
+    private async Task PrintServerHand() {
+        if (hubConnection is not null && gameStarted) {
+            await hubConnection.SendAsync("ServerHand");
+        }
+    }
+
+    private void Print(string text) {
+        Console.WriteLine(text);
+    }
+
+    
+
+    //---------------------------------------------------------------------------------------
+
+    #endregion //test methods
+    
+    public bool IsConnected => hubConnection?.State == HubConnectionState.Connected;
+
+    public async ValueTask DisposeAsync() {
+        if (hubConnection is not null) {
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+}

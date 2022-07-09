@@ -1,0 +1,12 @@
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\bin\Debug\net6.0\IdiotGame.Shared.deps.json
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\bin\Debug\net6.0\IdiotGame.Shared.dll
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\bin\Debug\net6.0\IdiotGame.Shared.pdb
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\obj\Debug\net6.0\IdiotGame.Shared.csproj.AssemblyReference.cache
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\obj\Debug\net6.0\IdiotGame.Shared.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\obj\Debug\net6.0\IdiotGame.Shared.AssemblyInfoInputs.cache
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\obj\Debug\net6.0\IdiotGame.Shared.AssemblyInfo.cs
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\obj\Debug\net6.0\IdiotGame.Shared.csproj.CoreCompileInputs.cache
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\obj\Debug\net6.0\IdiotGame.Shared.dll
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\obj\Debug\net6.0\refint\IdiotGame.Shared.dll
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\obj\Debug\net6.0\IdiotGame.Shared.pdb
+C:\Users\TageHigley\source\repos\IdiotGame\IdiotGame\Shared\obj\Debug\net6.0\ref\IdiotGame.Shared.dll
