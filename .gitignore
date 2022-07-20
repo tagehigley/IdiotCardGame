@@ -580,4 +580,8 @@ FodyWeavers.xsd
 ### VisualStudio Patch ###
 # Additional files built by Visual Studio
 
+<<<<<<< HEAD
 # End of https://www.toptal.com/developers/gitignore/api/visualstudio,csharp
+=======
+# End of https://www.toptal.com/developers/gitignore/api/visualstudio,csharp
+>>>>>>> master
